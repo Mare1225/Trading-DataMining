@@ -1,0 +1,9 @@
+pandas
+sqlalchemy
+psycopg2-binary
+argparse
+fastapi 
+uvicorn 
+joblib 
+pandas 
+scikit-learn

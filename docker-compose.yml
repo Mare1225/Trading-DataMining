@@ -1,0 +1,75 @@
+services:
+
+  jupyter-notebook:
+    image: jupyter/pyspark-notebook
+    container_name: jupyter-dm
+    ports:
+      - "${PORT_JUPYTER}:${PORT_JUPYTER}"
+      - "${PORT_SPARK}:${PORT_SPARK}"
+    volumes:
+      - ./notebooks:/home/jovyan/work
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - SPARK_LOCAL_IP=${SPARK_LOCAL_IP}
+      - PYSPARK_PYTHON=${PYSPARK_PYTHON}
+    depends_on:
+      warehouse:
+        condition: service_healthy
+    env_file:
+      - .env
+    
+  warehouse:
+    image: postgres:13
+    container_name: postgres
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+      - POSTGRES_DB=${PG_DB}
+    volumes:
+      - "./warehouseData:/var/lib/postgresql/data:rw"
+    ports:
+      - "${PORT_POSTGRES}:${PORT_POSTGRES}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"] 
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+#  obt-builder:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    container_name: obt-builder
+#    env_file:
+#      - .env
+#    environment:
+#      - POSTGRES_HOST=${PG_HOST}
+#      - POSTGRES_DB=${PG_DB}
+#      - POSTGRES_USER=${PG_USER}
+#      - POSTGRES_PASSWORD=${PG_PASSWORD}
+#    volumes:
+#      - ./output:/output
+#    depends_on:
+#      warehouse:
+#        condition: service_healthy
+    
+
+#  model-api:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    container_name: model-api
+#    environment:
+#      - API_PORT=${API_PORT}
+#    volumes:
+#      - ./notebooks/models:/models
+#      - ./notebooks/model.joblib:/app/model.joblib
+#    ports:
+#      - "${API_PORT}:${API_PORT}"
+#    depends_on:
+#      warehouse:
+#        condition: service_healthy
+#    env_file:
+#      - .env
