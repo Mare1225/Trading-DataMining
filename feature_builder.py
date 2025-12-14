@@ -12,12 +12,12 @@ class OBTBuilder:
     
     def connect(self):
         self.conn = psycopg2.connect(**self.db_params)
-        print("Conectado a PostgreSQL")
+        print("Conected to PostgreSQL")
     
     def disconnect(self):
         if self.conn:
             self.conn.close()
-        print("Conexión cerrada")
+        print("Connection closed")
     
     def create_obt_table(self, analytics_table: str):
         with self.conn.cursor() as cursor:
@@ -48,7 +48,7 @@ class OBTBuilder:
                 );
             """)
             self.conn.commit()
-        print("Tabla OBT creada")
+        print("OBT table ensured")
 
     def ensure_obt_columns(self, analytics_table: str):
         with self.conn.cursor() as cursor:
@@ -58,35 +58,82 @@ class OBTBuilder:
             cursor.execute(f"ALTER TABLE IF EXISTS {analytics_table} ADD COLUMN IF NOT EXISTS ingested_at_utc TIMESTAMP DEFAULT now();")
             cursor.execute(f"ALTER TABLE IF EXISTS {analytics_table} ADD COLUMN IF NOT EXISTS source_name TEXT;")
         self.conn.commit()
-        print(f"Columnas aseguradas en {analytics_table}")
+        print(f"Tabla: {analytics_table}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build features CLI')
-    parser.add_argument('--mode', choices=['full','by-date-range'], required=True)
-    parser.add_argument('--ticker', type=str, required=True)
-    parser.add_argument('--start-date', type=str, required=True)
-    parser.add_argument('--end-date', type=str, required=True)
-    parser.add_argument('--run-id', type=str, required=True)
-    parser.add_argument('--overwrite', type=str, choices=['true','false'], default='false')
-    parser.add_argument('--vol-window', type=int, default=20)
+    parser = argparse.ArgumentParser(
+        description='Financial Feature Builder - Construye features de trading desde datos raw',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos de uso:
+  # Procesar todo el historial de AAPL
+  python feature_builder.py --mode full --ticker AAPL --start-date 2020-01-01 --end-date 2024-12-01 --run-id daily_run --overwrite true
+
+  # Procesar rango específico con ventana de volatilidad personalizada
+  python feature_builder.py --mode by-date-range --ticker MSFT --start-date 2023-01-01 --end-date 2023-12-31 --run-id backfill_2023 --vol-window 30
+
+Features generados:
+  • return_close_open: Rendimiento intradiario (cierre vs apertura)
+  • return_prev_close: Rendimiento diario (cierre actual vs cierre anterior)
+  • volatility_n_days: Volatilidad histórica (std de returns en ventana móvil)
+  • is_monday/is_friday: Indicadores de día de la semana
+  • target_up: Variable objetivo (1 si cierre > apertura)
+        """
+    )
+
+    parser.add_argument('--mode',
+                       choices=['full','by-date-range'],
+                       required=True,
+                       help='Modo de procesamiento: full (todo el historial) o by-date-range (rango específico)')
+
+    parser.add_argument('--ticker',
+                       type=str,
+                       required=True,
+                       help='Símbolo bursátil a procesar (ej: AAPL, MSFT, GOOGL). Puede ser lista separada por comas')
+
+    parser.add_argument('--start-date',
+                       type=str,
+                       required=True,
+                       help='Fecha de inicio en formato YYYY-MM-DD')
+
+    parser.add_argument('--end-date',
+                       type=str,
+                       required=True,
+                       help='Fecha de fin en formato YYYY-MM-DD')
+
+    parser.add_argument('--run-id',
+                       type=str,
+                       required=True,
+                       help='Identificador único del proceso (ej: daily_run_20241213)')
+
+    parser.add_argument('--overwrite',
+                       type=str,
+                       choices=['true','false'],
+                       default='false',
+                       help='Si sobrescribir registros existentes (true/false). Default: false')
+
+    parser.add_argument('--vol-window',
+                       type=int,
+                       default=20,
+                       help='Ventana para cálculo de volatilidad en días. Default: 20')
 
     args = parser.parse_args()
 
     db_params = {
-        'host': os.getenv('PG_HOST') or os.getenv('POSTGRES_HOST'),
-        'port': os.getenv('PG_PORT') or os.getenv('POSTGRES_PORT'),
-        'database': os.getenv('PG_DB') or os.getenv('POSTGRES_DB'),
-        'user': os.getenv('PG_USER') or os.getenv('POSTGRES_USER'),
-        'password': os.getenv('PG_PASSWORD') or os.getenv('POSTGRES_PASSWORD')
+        'host': os.getenv('PG_HOST'),
+        'port': os.getenv('PG_PORT'),
+        'database': os.getenv('PG_DB'),
+        'user': os.getenv('PG_USER'),
+        'password': os.getenv('PG_PASSWORD') 
     }
 
     raw_table = "raw." + (os.getenv('RAW_TABLE') or 'prices_daily')
     analytics_table = "analytics." + (os.getenv('ANALYTICS_TABLE') or 'daily_features')
 
     overwrite_flag = args.overwrite.lower() == 'true'
-    is_full_mode = args.mode == 'full'
-    is_range_mode = args.mode == 'by-date-range'
+    full_mode = args.mode == 'full'
+    #is_range_mode = args.mode == 'by-date-range'
 
     builder = OBTBuilder(db_params)
     builder.connect()
@@ -98,19 +145,19 @@ def main():
     with builder.conn.cursor() as cursor:
         start_ts = datetime.utcnow()
         
-        for tk in tickers:
-            print(f"Procesando ticker: {tk}")
+        for ticker in tickers:
+            print(f"Ticker: {ticker}")
             
             if overwrite_flag:
-                if is_full_mode:
+                if full_mode:
                     cursor.execute(
                         f"DELETE FROM {analytics_table} WHERE ticker = %s",
-                        (tk,)
+                        (ticker,)
                     )
                 else:
                     cursor.execute(
                         f"DELETE FROM {analytics_table} WHERE ticker = %s AND date::date BETWEEN %s AND %s",
-                        (tk, args.start_date, args.end_date)
+                        (ticker, args.start_date, args.end_date)
                     )
             
             insert_sql = f"""
@@ -200,9 +247,9 @@ def main():
                     source_name = EXCLUDED.source_name;
             """
             
-            cursor.execute(insert_sql, (tk, args.mode, args.start_date, args.end_date, args.run_id))
+            cursor.execute(insert_sql, (ticker, args.mode, args.start_date, args.end_date, args.run_id))
             
-            if is_full_mode:
+            if full_mode:
                 validation_sql = f"""
                     SELECT COUNT(*) FROM {analytics_table} WHERE ticker = %s AND (
                         date IS NULL OR ticker IS NULL OR open IS NULL OR close IS NULL 
@@ -213,7 +260,7 @@ def main():
                         OR return_close_open IS NULL OR return_prev_close IS NULL OR volatility_n_days IS NULL
                     )
                 """
-                cursor.execute(validation_sql, (tk,))
+                cursor.execute(validation_sql, (ticker,))
             else:
                 validation_sql = f"""
                     SELECT COUNT(*) FROM {analytics_table} 
@@ -226,30 +273,30 @@ def main():
                         OR return_close_open IS NULL OR return_prev_close IS NULL OR volatility_n_days IS NULL
                     )
                 """
-                cursor.execute(validation_sql, (tk, args.start_date, args.end_date))
+                cursor.execute(validation_sql, (ticker, args.start_date, args.end_date))
             
             violations = cursor.fetchone()[0]
             if violations and violations > 0:
                 builder.conn.rollback()
-                raise ValueError(f"Validación fallida: {violations} filas inválidas para {tk}")
+                raise ValueError(f"Validación fallida: {violations} filas inválidas para {ticker}")
             
-            if is_full_mode:
+            if full_mode:
                 cursor.execute(
                     f"SELECT MIN(date), MAX(date), COUNT(*) FROM {analytics_table} WHERE ticker = %s",
-                    (tk,)
+                    (ticker,)
                 )
             else:
                 cursor.execute(
                     f"SELECT MIN(date), MAX(date), COUNT(*) FROM {analytics_table} WHERE ticker = %s AND date::date BETWEEN %s AND %s",
-                    (tk, args.start_date, args.end_date)
+                    (ticker, args.start_date, args.end_date)
                 )
             
             min_date, max_date, cnt = cursor.fetchone()
             duration_sec = (datetime.utcnow() - start_ts).total_seconds()
             
-            print(f"Ticker {tk} -> Filas creadas/actualizadas: {cnt}")
-            print(f"Ticker {tk} -> Fecha mín: {min_date} | Fecha máx: {max_date}")
-            print(f"Ticker {tk} -> Duración: {duration_sec:.2f}s")
+            print(f"Ticker {ticker} Log: Update/Create rows: {cnt}")
+            print(f"Ticker {ticker} Log: Min: {min_date} | Max: {max_date}")
+            print(f"Ticker {ticker} Log: Times: {duration_sec:.2f}s")
         
         builder.conn.commit()
     
