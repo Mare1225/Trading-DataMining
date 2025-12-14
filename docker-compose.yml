@@ -12,6 +12,17 @@ services:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
       - SPARK_LOCAL_IP=${SPARK_LOCAL_IP}
       - PYSPARK_PYTHON=${PYSPARK_PYTHON}
+      - TICKER=${TICKER}
+      - START_DATE=${START_DATE}
+      - END_DATE=${END_DATE}
+      - PG_USER=${PG_USER}
+      - PG_PASSWORD=${PG_PASSWORD}
+      - PG_HOST=${PG_HOST}
+      - PG_PORT=${PG_PORT}
+      - PG_DB=${PG_DB}
+      - RAW_TABLE_NAME=${RAW_TABLE_NAME}
+      - RAW_SCHEMA=${RAW_SCHEMA}
+      
     depends_on:
       warehouse:
         condition: service_healthy
@@ -30,46 +41,46 @@ services:
     volumes:
       - "./warehouseData:/var/lib/postgresql/data:rw"
     ports:
-      - "${PORT_POSTGRES}:${PORT_POSTGRES}"
+      - "${PG_PORT}:${PG_PORT}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"] 
       interval: 30s
       timeout: 10s
       retries: 3
 
-#  obt-builder:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#    container_name: obt-builder
-#    env_file:
-#      - .env
-#    environment:
-#      - POSTGRES_HOST=${PG_HOST}
-#      - POSTGRES_DB=${PG_DB}
-#      - POSTGRES_USER=${PG_USER}
-#      - POSTGRES_PASSWORD=${PG_PASSWORD}
-#    volumes:
-#      - ./output:/output
-#    depends_on:
-#      warehouse:
-#        condition: service_healthy
+  obt-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obt-builder
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=${PG_HOST}
+      - POSTGRES_DB=${PG_DB}
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+    volumes:
+      - ./output_builder:/output
+    depends_on:
+      warehouse:
+        condition: service_healthy
     
 
-#  model-api:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#    container_name: model-api
-#    environment:
-#      - API_PORT=${API_PORT}
-#    volumes:
-#      - ./notebooks/models:/models
-#      - ./notebooks/model.joblib:/app/model.joblib
-#    ports:
-#      - "${API_PORT}:${API_PORT}"
-#    depends_on:
-#      warehouse:
-#        condition: service_healthy
-#    env_file:
-#      - .env
+  # model-api:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: model-api
+  #   environment:
+  #     - API_PORT=${API_PORT}
+  #   volumes:
+  #     - ./notebooks/models:/models
+  #     - ./notebooks/model.joblib:/app/model.joblib
+  #   ports:
+  #     - "${API_PORT}:${API_PORT}"
+  #   depends_on:
+  #     warehouse:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
